@@ -13,6 +13,11 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // Explicit health check endpoint
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   // Create HTTP Server & attach Socket.IO
   const httpServer = http.createServer(app);
   const io = new SocketIOServer(httpServer, {
