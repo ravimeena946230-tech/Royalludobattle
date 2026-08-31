@@ -1,0 +1,8 @@
+{
+  "name": "Royalludobattle",
+  "description": "Royalludobattle - Real-Time 2-Player Ludo Battle Platform with Instant UPI Payouts, Live Arena, and 24x7 WhatsApp Support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

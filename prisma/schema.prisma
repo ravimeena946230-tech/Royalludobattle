@@ -1,0 +1,377 @@
+// Prisma Schema for RoomLudo Gaming Platform
+// Database: PostgreSQL with relations, indexes, and constraints
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPPORT_AGENT
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum RoomStatus {
+  WAITING
+  READY
+  STARTED
+  FINISHED
+  EXPIRED
+}
+
+enum GameStatus {
+  PLAYING
+  FINISHED
+  ABANDONED
+  DRAW
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  GAME_ENTRY
+  GAME_WIN
+  REFERRAL_BONUS
+  REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum TicketStatus {
+  Open
+  Processing
+  Resolved
+  Closed
+}
+
+enum TicketCategory {
+  Payment
+  GameIssue
+  KYC
+  Account
+  Withdrawal
+  Other
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// 1. USERS
+model User {
+  id              String         @id @default(uuid())
+  mobile          String         @unique
+  username        String
+  avatar          String
+  role            UserRole       @default(USER)
+  referralCode    String         @unique
+  referredByCode  String?
+  isBanned        Boolean        @default(false)
+  kycStatus       KycStatus      @default(NOT_SUBMITTED)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relationships
+  sessions        Session[]
+  wallet          Wallet?
+  transactions    Transaction[]
+  kycRecord       KycRecord?
+  hostedRooms     Room[]         @relation("HostedRooms")
+  roomPlayers     RoomPlayer[]
+  referralsMade   Referral[]     @relation("Referrer")
+  referralsReceived Referral[]   @relation("ReferredUser")
+  supportTickets  SupportTicket[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]     @relation("UserAuditLogs")
+
+  @@index([mobile])
+  @@index([referralCode])
+  @@map("users")
+}
+
+// 2. SESSIONS
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  token        String    @unique
+  deviceInfo   String?
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// 3. REFERRALS
+model Referral {
+  id              String    @id @default(uuid())
+  referrerId      String
+  referredUserId  String    @unique
+  rewardAmount    Float     @default(0)
+  isRewardClaimed Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  referrer        User      @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUser    User      @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
+  @@map("referrals")
+}
+
+// 4. ROOMS
+model Room {
+  id          String      @id @default(uuid())
+  code        String      @unique // 6-digit room code
+  hostId      String
+  entryFee    Float       @default(0)
+  prizeAmount Float       @default(0)
+  status      RoomStatus  @default(WAITING)
+  gameId      String?
+  createdAt   DateTime    @default(now())
+  expiresAt   DateTime
+
+  host        User        @relation("HostedRooms", fields: [hostId], references: [id], onDelete: Cascade)
+  players     RoomPlayer[]
+  game        Game?       @relation(fields: [gameId], references: [id])
+
+  @@index([code])
+  @@index([status])
+  @@map("rooms")
+}
+
+// 5. ROOM_PLAYERS
+model RoomPlayer {
+  id          String    @id @default(uuid())
+  roomId      String
+  userId      String
+  color       String    // "RED" | "GREEN"
+  isReady     Boolean   @default(false)
+  isHost      Boolean   @default(false)
+  joinedAt    DateTime  @default(now())
+
+  room        Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+  @@map("room_players")
+}
+
+// 6. GAMES
+model Game {
+  id            String      @id @default(uuid())
+  roomCode      String
+  entryFee      Float       @default(0)
+  prizeAmount   Float       @default(0)
+  status        GameStatus  @default(PLAYING)
+  currentTurn   String      // "RED" | "GREEN"
+  redPlayerId   String
+  greenPlayerId String
+  winnerColor   String?
+  winnerUserId  String?
+  gameStateJson Json        // Complete authoritative board snapshot
+  startedAt     DateTime    @default(now())
+  finishedAt    DateTime?
+
+  rooms         Room[]
+  moves         GameMove[]
+  result        GameResult?
+
+  @@index([roomCode])
+  @@index([status])
+  @@map("games")
+}
+
+// 7. GAME_MOVES
+model GameMove {
+  id            String    @id @default(uuid())
+  gameId        String
+  playerColor   String    // "RED" | "GREEN"
+  diceValue     Int
+  tokenId       Int
+  fromStep      Int
+  toStep        Int
+  isCapture     Boolean   @default(false)
+  capturedToken Int?
+  createdAt     DateTime  @default(now())
+
+  game          Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId])
+  @@map("game_moves")
+}
+
+// 8. GAME_RESULTS
+model GameResult {
+  id            String    @id @default(uuid())
+  gameId        String    @unique
+  winnerUserId  String
+  loserUserId   String
+  winnerPrize   Float
+  platformFee   Float
+  matchDuration Int       // in seconds
+  completedAt   DateTime  @default(now())
+
+  game          Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@map("game_results")
+}
+
+// 9. WALLETS
+model Wallet {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  depositBalance  Float     @default(0)
+  winningsBalance Float     @default(0)
+  bonusBalance    Float     @default(0)
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+// 10. TRANSACTIONS
+model Transaction {
+  id            String            @id @default(uuid())
+  userId        String
+  amount        Float
+  type          TransactionType
+  status        TransactionStatus @default(COMPLETED)
+  description   String
+  referenceId   String            @unique
+  gatewayTxnId  String?
+  createdAt     DateTime          @default(now())
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@map("transactions")
+}
+
+// 11. KYC_RECORDS
+model KycRecord {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  fullName      String
+  dob           String
+  panNumber     String
+  bankAccount   String
+  ifscCode      String
+  upiId         String?
+  status        KycStatus @default(PENDING)
+  documentUrl   String?
+  adminNote     String?
+  submittedAt   DateTime  @default(now())
+  reviewedAt    DateTime?
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("kyc_records")
+}
+
+// 12. SUPPORT_TICKETS
+model SupportTicket {
+  id            String          @id @default(uuid())
+  userId        String
+  category      TicketCategory
+  subject       String
+  status        TicketStatus    @default(Open)
+  priority      TicketPriority  @default(MEDIUM)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages      TicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id            String        @id @default(uuid())
+  ticketId      String
+  sender        String        // "USER" | "AGENT" | "SYSTEM"
+  senderName    String
+  message       String
+  createdAt     DateTime      @default(now())
+
+  ticket        SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+// 13. NOTIFICATIONS
+model Notification {
+  id            String    @id @default(uuid())
+  userId        String
+  title         String
+  message       String
+  type          String    // "INFO" | "SUCCESS" | "WARNING" | "BONUS"
+  isRead        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+// 14. ADMIN_USERS
+model AdminUser {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  role          UserRole  @default(ADMIN)
+  createdAt     DateTime  @default(now())
+
+  @@map("admin_users")
+}
+
+// 15. AUDIT_LOGS
+model AuditLog {
+  id            String    @id @default(uuid())
+  userId        String?
+  action        String
+  entityType    String
+  entityId      String?
+  details       Json?
+  ipAddress     String?
+  createdAt     DateTime  @default(now())
+
+  user          User?     @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@map("audit_logs")
+}
