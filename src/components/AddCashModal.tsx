@@ -23,6 +23,7 @@ interface AddCashModalProps {
   onDeposit: (amount: number, method: string) => void;
   currentBalance: number;
   onDepositSubmitted?: () => void;
+  userId: string;
 }
 
 interface PaymentConfig {
@@ -50,6 +51,7 @@ export const AddCashModal: React.FC<AddCashModalProps> = ({
   onDeposit,
   currentBalance,
   onDepositSubmitted,
+  userId,
 }) => {
   const [selectedAmount, setSelectedAmount] = useState(100);
   const [customAmount, setCustomAmount] = useState('');
@@ -141,6 +143,7 @@ export const AddCashModal: React.FC<AddCashModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          userId,
           amount: finalAmount,
           paymentMethod: methodName,
           utrNumber: utrNumber.trim().toUpperCase(),

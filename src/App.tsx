@@ -147,6 +147,11 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  // Fetch profile on initial mount or when user changes
+  useEffect(() => {
+    refreshUserProfile(currentUser.id);
+  }, [currentUser.id]);
+
   // Initialize Socket.IO connection & event handlers
   useEffect(() => {
     const socket = getSocket();
@@ -570,6 +575,7 @@ export const App: React.FC = () => {
         onDeposit={handleDeposit}
         currentBalance={currentUser.wallet.total}
         onDepositSubmitted={() => refreshUserProfile(currentUser.id)}
+        userId={currentUser.id}
       />
 
       {/* Withdraw Modal */}

@@ -81,14 +81,17 @@ async function startServer() {
   });
 
   // --- 2. PROFILE API ---
-  app.get('/api/profile', (req: Request, res: Response) => {
+  const handleProfileGet = (req: Request, res: Response) => {
     const userId = getUserIdFromReq(req);
     const user = db.getUser(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     res.json(user);
-  });
+  };
+
+  app.get('/api/profile', handleProfileGet);
+  app.get('/api/user/profile', handleProfileGet);
 
   app.put('/api/profile', (req: Request, res: Response) => {
     const userId = getUserIdFromReq(req);
@@ -340,7 +343,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/kyc', (req: Request, res: Response) => {
+  const handleKycSubmit = (req: Request, res: Response) => {
     try {
       const userId = getUserIdFromReq(req);
       const { fullName, dob, panNumber, bankAccount, ifscCode, upiId } = req.body;
@@ -359,7 +362,10 @@ async function startServer() {
     } catch (err: unknown) {
       res.status(400).json({ error: (err as Error).message });
     }
-  });
+  };
+
+  app.post('/api/kyc', handleKycSubmit);
+  app.post('/api/kyc/submit', handleKycSubmit);
 
   // --- 8. SUPPORT API ---
   // --- APK DOWNLOAD API ---

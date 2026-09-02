@@ -83,10 +83,10 @@ export class DatabaseStore {
         reviewedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
       },
       wallet: {
-        deposit: 0,
+        deposit: 100,
         winnings: 0.5,
         bonus: 0,
-        total: 0.5,
+        total: 100.5,
       },
       stats: {
         gamesPlayed: 24,
@@ -120,10 +120,10 @@ export class DatabaseStore {
         reviewedAt: new Date(Date.now() - 86400000 * 9).toISOString(),
       },
       wallet: {
-        deposit: 0,
+        deposit: 100,
         winnings: 0.5,
         bonus: 0,
-        total: 0.5,
+        total: 100.5,
       },
       stats: {
         gamesPlayed: 18,
@@ -1038,6 +1038,30 @@ export class DatabaseStore {
     if (!player) throw new Error('Player not in this room');
 
     player.isReady = !player.isReady;
+    return room;
+  }
+
+  public leaveRoom(code: string, userId: string): Room | null {
+    const room = this.rooms.get(code);
+    if (!room) return null;
+
+    room.players = room.players.filter(p => p.userId !== userId);
+
+    if (room.players.length === 0) {
+      this.rooms.delete(code);
+      return null;
+    }
+
+    if (room.hostId === userId) {
+      const nextPlayer = room.players[0];
+      nextPlayer.isHost = true;
+      nextPlayer.color = 'RED';
+      nextPlayer.isReady = true;
+      room.hostId = nextPlayer.userId;
+      room.hostName = nextPlayer.username;
+    }
+
+    room.status = 'WAITING';
     return room;
   }
 
