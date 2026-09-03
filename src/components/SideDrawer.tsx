@@ -16,7 +16,8 @@ import {
   ChevronRight,
   Info,
   Swords,
-  Globe
+  Globe,
+  Settings
 } from 'lucide-react';
 import { UserProfile, ViewType } from '../types';
 import { sounds } from '../lib/soundEffects';
@@ -212,6 +213,17 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
             <ChevronRight className="w-4 h-4 text-slate-400" />
           </button>
 
+          <button
+            onClick={() => handleNav('admin')}
+            className="w-full flex items-center justify-between p-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs text-left shadow-md transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-white/10 text-white"><Settings className="w-4 h-4 animate-[spin_4s_linear_infinite]" /></div>
+              <span>Admin Settings</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-white/50" />
+          </button>
+
           <div className="pt-2 border-t border-slate-100 space-y-1">
             <div className="flex items-center justify-between px-3 py-2 text-xs text-slate-600">
               <span className="flex items-center gap-2">
@@ -243,16 +255,6 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
 
           <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
             <span>v2.4.0 • Royalludobattle</span>
-            <button
-              onClick={() => {
-                sounds.playClick();
-                handleNav('admin');
-              }}
-              className="p-1 rounded-md text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 cursor-pointer transition-all ml-0.5"
-              title="System Settings"
-            >
-              <Globe className="w-3.5 h-3.5" />
-            </button>
           </span>
         </div>
 

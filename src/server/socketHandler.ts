@@ -2,10 +2,49 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { db } from './db';
 import { PlayerColor } from '../types';
 
+// Mock JWT/Session verification function (Replace with real JWT logic)
+async function verifySocketAuthentication(socket: Socket): Promise<string | null> {
+  // In a real app, verify socket.handshake.auth.token or headers.authorization
+  const token = socket.handshake.auth.token || socket.handshake.auth.userId;
+  
+  if (!token) return null;
+  
+  // Simulated async validation (e.g. database lookup or JWT verify)
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      // For now, assume the token IS the userId, or extracts to userId
+      const user = db.getUser(token);
+      if (user && user.kycStatus !== 'REJECTED') {
+        resolve(token);
+      } else {
+        resolve(null);
+      }
+    }, 100);
+  });
+}
+
 export function setupSocketHandlers(io: SocketIOServer) {
+  io.use(async (socket, next) => {
+    try {
+      // अपने actual session/JWT verification से user निकालें
+      const userId = await verifySocketAuthentication(socket);
+
+      if (!userId) {
+        return next(new Error('Unauthorized'));
+      }
+
+      socket.data.userId = userId;
+      next();
+    } catch {
+      next(new Error('Unauthorized'));
+    }
+  });
+
   io.on('connection', (socket: Socket) => {
+    const userId = socket.data.userId;
+    
     // Create Room Event
-    socket.on('create_room', ({ userId, entryFee }: { userId: string; entryFee: number }) => {
+    socket.on('create_room', ({ entryFee }: { entryFee: number }) => {
       try {
         const room = db.createRoom(userId, Number(entryFee) || 0);
         socket.join(room.code);
@@ -20,7 +59,7 @@ export function setupSocketHandlers(io: SocketIOServer) {
     });
 
     // Join Room Event (Support both roomCode and code parameters to map client/server fields)
-    socket.on('join_room', ({ roomCode, code, userId }: { roomCode?: string; code?: string; userId: string }) => {
+    socket.on('join_room', ({ roomCode, code }: { roomCode?: string; code?: string }) => {
       try {
         const targetCode = roomCode || code;
         if (!targetCode) {
@@ -57,7 +96,7 @@ export function setupSocketHandlers(io: SocketIOServer) {
     });
 
     // Practice Match Event (AI Bot Battle)
-    socket.on('practice_match', ({ userId }: { userId: string }) => {
+    socket.on('practice_match', () => {
       try {
         const result = db.createPracticeGame(userId);
         
@@ -79,7 +118,7 @@ export function setupSocketHandlers(io: SocketIOServer) {
     });
 
     // Toggle Ready State in Lobby (Supports player_ready and toggle_ready)
-    const handleToggleReady = ({ roomCode, userId }: { roomCode: string; userId: string }) => {
+    const handleToggleReady = ({ roomCode }: { roomCode: string }) => {
       try {
         const updatedRoom = db.togglePlayerReady(roomCode, userId);
         io.to(roomCode).emit('room_update', updatedRoom);
@@ -93,7 +132,7 @@ export function setupSocketHandlers(io: SocketIOServer) {
     socket.on('toggle_ready', handleToggleReady);
 
     // Leave Room Event
-    socket.on('leave_room', ({ roomCode, userId }: { roomCode: string; userId: string }) => {
+    socket.on('leave_room', ({ roomCode }: { roomCode: string }) => {
       try {
         const updatedRoom = db.leaveRoom(roomCode, userId);
         socket.leave(roomCode);
@@ -108,7 +147,7 @@ export function setupSocketHandlers(io: SocketIOServer) {
     });
 
     // Start Game Event
-    socket.on('start_game', ({ roomCode, userId }: { roomCode: string; userId: string }) => {
+    socket.on('start_game', ({ roomCode }: { roomCode: string }) => {
       try {
         const game = db.startRoomGame(roomCode, userId);
         const room = db.getRoom(roomCode)!;
@@ -126,10 +165,9 @@ export function setupSocketHandlers(io: SocketIOServer) {
       }
     });
 
-    // Roll dice (supports both playerColor and userId based roll events)
-    socket.on('roll_dice', ({ gameId, playerColor, userId }: { gameId: string; playerColor?: PlayerColor; userId?: string }) => {
+    // Roll dice
+    socket.on('roll_dice', ({ gameId }: { gameId: string }) => {
       try {
-        let color = playerColor;
         const game = db.getGame(gameId);
         if (!game) {
           socket.emit('error', { message: 'Game not found' });
@@ -137,17 +175,16 @@ export function setupSocketHandlers(io: SocketIOServer) {
           return;
         }
 
-        if (!color && userId) {
-          if (game.players.RED?.userId === userId) {
-            color = 'RED';
-          } else if (game.players.GREEN?.userId === userId) {
-            color = 'GREEN';
-          }
+        let color: PlayerColor | undefined;
+        if (game.players.RED?.userId === userId) {
+          color = 'RED';
+        } else if (game.players.GREEN?.userId === userId) {
+          color = 'GREEN';
         }
 
         if (!color) {
-          socket.emit('error', { message: 'Could not resolve player color' });
-          socket.emit('error_msg', { message: 'Could not resolve player color' });
+          socket.emit('error', { message: 'You are not a player in this game' });
+          socket.emit('error_msg', { message: 'You are not a player in this game' });
           return;
         }
 
@@ -172,10 +209,9 @@ export function setupSocketHandlers(io: SocketIOServer) {
       }
     });
 
-    // Move token (supports both playerColor and userId based token movement)
-    socket.on('move_token', ({ gameId, playerColor, userId, tokenId }: { gameId: string; playerColor?: PlayerColor; userId?: string; tokenId: number }) => {
+    // Move token
+    socket.on('move_token', ({ gameId, tokenId }: { gameId: string; tokenId: number }) => {
       try {
-        let color = playerColor;
         const game = db.getGame(gameId);
         if (!game) {
           socket.emit('error', { message: 'Game not found' });
@@ -183,17 +219,16 @@ export function setupSocketHandlers(io: SocketIOServer) {
           return;
         }
 
-        if (!color && userId) {
-          if (game.players.RED?.userId === userId) {
-            color = 'RED';
-          } else if (game.players.GREEN?.userId === userId) {
-            color = 'GREEN';
-          }
+        let color: PlayerColor | undefined;
+        if (game.players.RED?.userId === userId) {
+          color = 'RED';
+        } else if (game.players.GREEN?.userId === userId) {
+          color = 'GREEN';
         }
 
         if (!color) {
-          socket.emit('error', { message: 'Could not resolve player color' });
-          socket.emit('error_msg', { message: 'Could not resolve player color' });
+          socket.emit('error', { message: 'You are not a player in this game' });
+          socket.emit('error_msg', { message: 'You are not a player in this game' });
           return;
         }
 
@@ -225,33 +260,42 @@ export function setupSocketHandlers(io: SocketIOServer) {
     });
 
     // In-game Chat & Emojis
-    socket.on('send_chat', ({ gameId, senderId, senderName, senderColor, message, isEmoji }: {
+    socket.on('send_chat', ({ gameId, message, isEmoji }: {
       gameId: string;
-      senderId: string;
-      senderName: string;
-      senderColor: PlayerColor;
       message: string;
       isEmoji?: boolean;
     }) => {
       const game = db.getGame(gameId);
-      if (game) {
-        const chatMsg = {
-          id: `msg_${Date.now()}_${Math.random().toString().slice(2, 6)}`,
-          senderId,
-          senderName,
-          senderColor,
-          message,
-          isEmoji,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        game.chatMessages.push(chatMsg);
-        io.to(gameId).emit('chat_received', chatMsg);
-      }
+      if (!game) return;
+      
+      let senderColor: PlayerColor | undefined;
+      if (game.players.RED?.userId === userId) senderColor = 'RED';
+      else if (game.players.GREEN?.userId === userId) senderColor = 'GREEN';
+
+      if (!senderColor) return;
+      
+      const user = db.getUser(userId);
+      if (!user) return;
+
+      const chatMsg = {
+        id: `msg_${Date.now()}_${Math.random().toString().slice(2, 6)}`,
+        senderId: userId,
+        senderName: user.username,
+        senderColor,
+        message,
+        isEmoji,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      game.chatMessages.push(chatMsg);
+      io.to(gameId).emit('chat_received', chatMsg);
     });
 
     // Player disconnected
     socket.on('disconnect', () => {
-      // Keep state intact for reconnection
+      // In a real app, handle graceful disconnection, game abandonment, etc.
+      console.log(`User ${userId} disconnected from socket ${socket.id}`);
+      db.markPlayerDisconnected(userId);
+      // Optional: Broadcast connection state change if needed
     });
   });
 }

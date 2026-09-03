@@ -62,6 +62,7 @@ import { sounds } from '../lib/soundEffects';
 interface AdminViewProps {
   currentUser: UserProfile;
   onBack?: () => void;
+  onRefreshProfile?: () => void;
 }
 
 type AdminTab = 
@@ -77,7 +78,7 @@ type AdminTab =
   | 'AUDIT'
   | 'SETTINGS';
 
-export const AdminView: React.FC<AdminViewProps> = ({ currentUser, onBack }) => {
+export const AdminView: React.FC<AdminViewProps> = ({ currentUser, onBack, onRefreshProfile }) => {
   // Master Admin Security States
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
     return sessionStorage.getItem('taj_admin_session_unlocked') === 'true';
@@ -91,6 +92,13 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, onBack }) => 
   const [showPinChangeModal, setShowPinChangeModal] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // Email OTP Flow States
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [emailOtp, setEmailOtp] = useState('');
+  const [receivedOtp, setReceivedOtp] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<AdminTab>('DASHBOARD');
@@ -225,13 +233,108 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, onBack }) => 
     }
   }, [isUnlocked]);
 
-  // Handle Admin Login (Email/Password)
-  const handleAdminLogin = (e: React.FormEvent) => {
+  // Handle Requesting Email OTP
+  const handleRequestEmailOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanEmail = adminEmail.trim().toLowerCase();
+    if (!cleanEmail || !adminPassword) {
+      setPinError('Please fill in both email and password.');
+      return;
+    }
+    
+    setIsSendingOtp(true);
+    setPinError(null);
+    try {
+      const response = await fetch('/api/auth/send-email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password: adminPassword }),
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setIsOtpSent(true);
+        setReceivedOtp(data.otp); // Display received OTP for easy sandbox access
+        sounds.playVictory();
+        showToast(`🔒 OTP Sent to ${cleanEmail}`);
+      } else {
+        sounds.playClick();
+        setPinError(data.error || 'Failed to send OTP. Check your credentials.');
+      }
+    } catch (err) {
+      setPinError('Network error while requesting secure OTP.');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Handle Verifying Email OTP
+  const handleVerifyEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = adminEmail.trim().toLowerCase();
+    if (!emailOtp) {
+      setPinError('Please enter the 6-digit OTP code received on email.');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    setPinError(null);
+    try {
+      const response = await fetch('/api/auth/verify-email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          otp: emailOtp,
+          userId: currentUser.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        onRefreshProfile?.();
+        sounds.playVictory();
+        setIsUnlocked(true);
+        sessionStorage.setItem('taj_admin_session_unlocked', 'true');
+        setPinError(null);
+        showToast('Admin Portal Unlocked! Welcome back.');
+      } else {
+        sounds.playClick();
+        setPinError(data.error || 'Invalid OTP Code. Please try again.');
+      }
+    } catch (err) {
+      setPinError('Network error while verifying OTP.');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // Handle Admin Login (Email/Password)
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = adminEmail.trim().toLowerCase();
     if (
-      adminEmail.trim().toLowerCase() === 'ravimeena946230@gmail.com' &&
+      cleanEmail === 'ravimeena946230@gmail.com' &&
       adminPassword === '98293093'
     ) {
+      try {
+        const response = await fetch('/api/auth/admin-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password: adminPassword,
+            userId: currentUser.id,
+          }),
+        });
+        
+        if (response.ok) {
+          onRefreshProfile?.();
+        }
+      } catch (err) {
+        console.error('Failed to sync admin role with server:', err);
+      }
+
       sounds.playVictory();
       setIsUnlocked(true);
       sessionStorage.setItem('taj_admin_session_unlocked', 'true');
@@ -539,79 +642,170 @@ export const AdminView: React.FC<AdminViewProps> = ({ currentUser, onBack }) => 
           {/* Security Gate Card */}
           <div className="p-6 rounded-3xl bg-gradient-to-b from-[#120f26] via-[#0d0a1d] to-[#080712] text-white border border-purple-900/50 shadow-2xl space-y-4">
             
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto shadow-lg ${currentUser.role === 'ADMIN' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-amber-500/10' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-rose-500/10'}`}>
               <Lock className="w-8 h-8 stroke-[2.2]" />
             </div>
 
             <div className="text-center">
-              <span className="text-[10px] font-black text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                Restricted System Area
+              <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${currentUser.role === 'ADMIN' ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30' : 'text-rose-400 bg-rose-400/10 border border-rose-400/30'}`}>
+                {currentUser.role === 'ADMIN' ? 'Restricted System Area' : 'Unauthorized Access'}
               </span>
               <h2 className="text-lg font-black text-white font-['Outfit'] mt-2">
                 RoomLudo Admin Command Hub
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Log in to access full 11-section platform management.
+                {currentUser.role === 'ADMIN' 
+                  ? 'Your account has administrator privileges.' 
+                  : 'You do not have permission to access this area.'}
               </p>
             </div>
 
-            <form onSubmit={handleAdminLogin} className="space-y-4 pt-2">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Admin Email</label>
-                <input
-                  type="email"
-                  required
-                  autoFocus
-                  value={adminEmail}
-                  onChange={(e) => {
-                    setAdminEmail(e.target.value);
-                    setPinError(null);
+            {currentUser.role === 'ADMIN' ? (
+              <div className="space-y-4 pt-2">
+                <button
+                  onClick={() => {
+                    sounds.playVictory();
+                    setIsUnlocked(true);
+                    sessionStorage.setItem('taj_admin_session_unlocked', 'true');
+                    showToast('Admin Portal Unlocked.');
                   }}
-                  placeholder="admin@example.com"
-                  className="w-full py-3 px-4 rounded-xl bg-white/5 border border-purple-500/20 focus:border-amber-400 text-xs text-white focus:outline-none placeholder:text-slate-600 transition-colors"
-                />
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  <span>Verify Role & Unlock Portal</span>
+                </button>
               </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={adminPassword}
-                  onChange={(e) => {
-                    setAdminPassword(e.target.value);
-                    setPinError(null);
-                  }}
-                  placeholder="Enter Password"
-                  className="w-full py-3 px-4 rounded-xl bg-white/5 border border-purple-500/20 focus:border-amber-400 text-xs text-white focus:outline-none placeholder:text-slate-600 transition-colors"
-                />
-              </div>
-
-              {pinError && (
-                <div className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold text-center">
-                  {pinError}
+            ) : (
+              <div className="pt-2 space-y-4">
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-bold text-center">
+                  Access Denied. Admin role required.
                 </div>
-              )}
 
-              <button
-                type="submit"
-                disabled={!adminEmail.trim() || !adminPassword.trim()}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
-              >
-                <KeyRound className="w-4 h-4" />
-                <span>Verify & Unlock Portal</span>
-              </button>
-            </form>
+                <div className="border-t border-white/10 pt-4">
+                  <h3 className="text-xs font-black text-slate-300 uppercase tracking-wider mb-3 text-center">
+                    Admin Email Authorization
+                  </h3>
 
-            <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="text-amber-500 font-bold">Secure Gateway</span>
+                  {!isOtpSent ? (
+                    <form onSubmit={handleRequestEmailOtp} className="space-y-3 text-left">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                          Admin Email
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          value={adminEmail}
+                          onChange={(e) => setAdminEmail(e.target.value)}
+                          placeholder="e.g. ravimeena946230@gmail.com"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-purple-950 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-purple-600 transition-colors"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                          Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          value={adminPassword}
+                          onChange={(e) => setAdminPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-purple-950 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-purple-600 transition-colors"
+                        />
+                      </div>
+
+                      {pinError && (
+                        <p className="text-[11px] text-rose-400 font-bold text-center">
+                          {pinError}
+                        </p>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={isSendingOtp}
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-purple-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer mt-1 disabled:opacity-50"
+                      >
+                        <KeyRound className="w-4 h-4 text-purple-200" />
+                        <span>{isSendingOtp ? 'Sending OTP...' : 'Send OTP to Email'}</span>
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleVerifyEmailOtp} className="space-y-4 text-left">
+                      {/* Secure sandbox OTP helper card */}
+                      <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-1">
+                        <span className="font-bold text-[10px] uppercase text-indigo-400 tracking-wider flex items-center gap-1">
+                          ✉️ Email OTP Sent!
+                        </span>
+                        <p className="text-[11px] text-slate-300 leading-normal">
+                          OTP has been sent to <strong className="text-white font-extrabold">{adminEmail}</strong>. 
+                        </p>
+                        <div className="mt-1.5 p-2 bg-slate-950/40 rounded-lg text-center border border-indigo-500/10">
+                          <span className="text-[10px] text-slate-400 block font-bold">Secure Verification OTP Code:</span>
+                          <span className="text-lg font-black text-amber-400 tracking-widest">{receivedOtp}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                          Enter 6-Digit OTP
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          maxLength={6}
+                          value={emailOtp}
+                          onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, ''))}
+                          placeholder="e.g. 123456"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-purple-950 text-base font-black text-center text-amber-400 tracking-widest focus:outline-none focus:border-purple-600 transition-colors"
+                        />
+                      </div>
+
+                      {pinError && (
+                        <p className="text-[11px] text-rose-400 font-bold text-center">
+                          {pinError}
+                        </p>
+                      )}
+
+                      <div className="space-y-2">
+                        <button
+                          type="submit"
+                          disabled={isVerifyingOtp}
+                          className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                          <span>{isVerifyingOtp ? 'Verifying OTP...' : 'Verify OTP & Unlock Portal'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setIsOtpSent(false);
+                            setEmailOtp('');
+                            setPinError(null);
+                          }}
+                          className="w-full py-2 text-center text-[11px] text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer"
+                        >
+                          ← Change Credentials or Resend
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-500">
+              <span className={currentUser.role === 'ADMIN' ? 'text-amber-500 font-bold' : 'text-rose-500 font-bold'}>
+                {currentUser.role === 'ADMIN' ? 'Secure Gateway' : 'Security Alert'}
+              </span>
               <span className="text-emerald-400 font-bold flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5" /> 256-Bit Encrypted
               </span>
             </div>
-
           </div>
-
         </div>
       </div>
     );

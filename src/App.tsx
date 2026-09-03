@@ -7,7 +7,7 @@ import {
   AppNotification, 
   KycDetails 
 } from './types';
-import { getSocket } from './lib/socketClient';
+import { getSocket, initSocket } from './lib/socketClient';
 import { sounds } from './lib/soundEffects';
 
 // Components
@@ -154,7 +154,7 @@ export const App: React.FC = () => {
 
   // Initialize Socket.IO connection & event handlers
   useEffect(() => {
-    const socket = getSocket();
+    const socket = initSocket(currentUser.id);
 
     socket.on('connect', () => {
       // Re-identify user if in room
@@ -391,39 +391,8 @@ export const App: React.FC = () => {
   };
 
   // Handle Login Success (from LoginView or AuthModal)
-  const handleLoginSuccess = async (mobile: string, username?: string, referralCode?: string) => {
-    try {
-      const res = await fetch('/api/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mobile,
-          otp: '123456',
-          username: username || undefined,
-          referralCode: referralCode || undefined,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user) {
-          setCurrentUser(data.user);
-        }
-      } else {
-        // Fallback for demo switch
-        if (mobile === '9876543211') {
-          await refreshUserProfile('usr_102');
-        } else {
-          await refreshUserProfile('usr_101');
-        }
-      }
-    } catch {
-      if (mobile === '9876543211') {
-        await refreshUserProfile('usr_102');
-      } else {
-        await refreshUserProfile('usr_101');
-      }
-    }
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
     setIsAuthOpen(false);
     setActiveView('home');
   };
@@ -540,6 +509,7 @@ export const App: React.FC = () => {
           <AdminView 
             currentUser={currentUser} 
             onBack={() => setActiveView('home')} 
+            onRefreshProfile={() => refreshUserProfile(currentUser.id)}
           />
         )}
 

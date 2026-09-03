@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Smartphone, ShieldCheck, Zap, ArrowRight, CheckCircle2, Gift } from 'lucide-react';
 import { sounds } from '../lib/soundEffects';
+import { UserProfile } from '../types';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: (mobile: string, username?: string, referralCode?: string) => void;
+  onLoginSuccess: (user: UserProfile) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -20,18 +21,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [step, setStep] = useState<'MOBILE' | 'OTP'>('MOBILE');
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [otpCodePreview, setOtpCodePreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [timer, setTimer] = useState(30);
+
+  // Timer countdown for OTP resend
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (step === 'OTP' && timer > 0) {
+      interval = setInterval(() => {
+        setTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [step, timer]);
 
   if (!isOpen) return null;
 
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (mobile.length !== 10) {
-      alert('Please enter a valid 10-digit mobile number');
+      setError('Please enter a valid 10-digit mobile number');
       return;
     }
 
     setIsSending(true);
+    setError(null);
     sounds.playClick();
 
     try {
@@ -40,12 +54,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobile }),
       });
-      const data = await res.json();
-      setOtpCodePreview(data.code || '123456');
+      
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to send OTP');
+      }
+
       setStep('OTP');
-    } catch {
-      setOtpCodePreview('123456');
-      setStep('OTP');
+      setTimer(30);
+    } catch (err: any) {
+      setError(err.message || 'Error connecting to server');
     } finally {
       setIsSending(false);
     }
@@ -53,9 +71,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (otp.length !== 6) return;
+    if (otp.length !== 6) {
+      setError('Please enter a valid 6-digit OTP');
+      return;
+    }
 
     setIsVerifying(true);
+    setError(null);
     sounds.playClick();
 
     try {
@@ -70,23 +92,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }),
       });
 
-      if (res.ok) {
-        sounds.playVictory();
-        onLoginSuccess(mobile, username || undefined, referralCode || undefined);
-        onClose();
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Invalid OTP');
       }
-    } catch {
-      onLoginSuccess(mobile, username || undefined, referralCode || undefined);
-      onClose();
+      
+      const data = await res.json();
+      if (data.user) {
+        sounds.playVictory();
+        onLoginSuccess(data.user);
+        onClose();
+      } else {
+        throw new Error('User data not found in response');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error verifying OTP');
     } finally {
       setIsVerifying(false);
     }
-  };
-
-  const handleQuickDemo = (demoMobile: string, demoName: string) => {
-    sounds.playClick();
-    onLoginSuccess(demoMobile, demoName);
-    onClose();
   };
 
   return (
@@ -119,6 +142,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Content */}
         <div className="p-5 space-y-4">
           
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs font-bold rounded-xl text-center">
+              {error}
+            </div>
+          )}
+
           {step === 'MOBILE' ? (
             <form onSubmit={handleSendOtp} className="space-y-3.5 text-xs">
               
@@ -157,7 +186,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <input
                   type="text"
                   value={referralCode}
-                  onChange={e => setReferralCode(e.target.value.toUpperCase())}
+                  onChange={e => setReferralCode(e.target.value.toUpperCase().trim())}
                   placeholder="Enter referral code if any"
                   className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 uppercase font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
@@ -177,11 +206,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               
               <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-100 text-center">
                 <span className="text-[10px] text-slate-500 block">OTP sent to +91 {mobile}</span>
-                {otpCodePreview && (
-                  <span className="text-xs font-mono font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border mt-1 inline-block">
-                    Preview OTP: <strong>{otpCodePreview}</strong>
-                  </span>
-                )}
               </div>
 
               <div>
@@ -204,41 +228,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               >
                 {isVerifying ? 'Verifying...' : 'Confirm & Enter App'}
               </button>
-
-              <button
-                type="button"
-                onClick={() => setStep('MOBILE')}
-                className="w-full text-center text-[11px] font-bold text-indigo-600 hover:underline"
-              >
-                Change Mobile Number
-              </button>
+              
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep('MOBILE');
+                    setOtp('');
+                    setError(null);
+                  }}
+                  className="text-center text-[11px] font-bold text-indigo-600 hover:underline"
+                >
+                  Change Mobile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendOtp()}
+                  disabled={timer > 0 || isSending}
+                  className="text-center text-[11px] font-bold text-indigo-600 hover:underline disabled:opacity-50 disabled:no-underline"
+                >
+                  {timer > 0 ? `Resend OTP in ${timer}s` : 'Resend OTP'}
+                </button>
+              </div>
             </form>
           )}
-
-          {/* Quick Demo Switcher */}
-          <div className="pt-3 border-t border-slate-100">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 text-center">
-              Quick Test Accounts
-            </span>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => handleQuickDemo('9876543210', 'Rajesh Gamer')}
-                className="p-2 rounded-xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 text-slate-700 font-bold text-left"
-              >
-                <span className="block text-[11px] text-indigo-900">Player 1</span>
-                <span className="text-[9px] text-slate-400">Rajesh (+91 9876543210)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickDemo('9876543211', 'Priya Pro')}
-                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 text-slate-700 font-bold text-left"
-              >
-                <span className="block text-[11px] text-emerald-900">Player 2</span>
-                <span className="text-[9px] text-slate-400">Priya (+91 9876543211)</span>
-              </button>
-            </div>
-          </div>
 
         </div>
 

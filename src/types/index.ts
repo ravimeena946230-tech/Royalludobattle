@@ -44,6 +44,7 @@ export interface MatchRecord {
 export interface UserProfile {
   id: string;
   mobile: string;
+  email?: string;
   username: string;
   avatar: string;
   role: UserRole;
@@ -211,6 +212,18 @@ export interface GameState {
   matchStartTime: number;
   matchEndTime?: number;
   chatMessages: ChatMessage[];
+  ludoKingCode?: string;
+  resultsSubmitted?: {
+    [userId: string]: {
+      status: 'WON' | 'LOST' | 'CANCEL';
+      screenshotUrl?: string;
+      submittedAt: string;
+    }
+  };
+  disputed?: boolean;
+  arbitratedBy?: string;
+  arbitrationWinner?: string;
+  adminDecisionNote?: string;
 }
 
 export interface ChatMessage {

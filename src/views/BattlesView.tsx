@@ -170,8 +170,8 @@ export const BattlesView: React.FC<BattlesViewProps> = ({
   const handleSetAmount = () => {
     sounds.playClick();
     const parsed = Number(amountInput);
-    if (!amountInput || isNaN(parsed) || parsed < 10) {
-      setErrorMsg('Minimum battle stake is ₹10');
+    if (!amountInput || isNaN(parsed) || parsed < 50) {
+      setErrorMsg('Minimum battle stake is ₹50');
       setTimeout(() => setErrorMsg(null), 3000);
       return;
     }

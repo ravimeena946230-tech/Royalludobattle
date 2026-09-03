@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import path from 'path';
 import { Server as SocketIOServer } from 'socket.io';
@@ -31,7 +31,7 @@ async function startServer() {
   setupSocketHandlers(io);
 
   // Helper auth extractor
-  const getUserIdFromReq = (req: Request): string => {
+  const getUserIdFromReq = (req: Request): string | undefined => {
     const auth = req.headers.authorization;
     if (auth && auth.startsWith('Bearer ')) {
       const token = auth.replace('Bearer ', '');
@@ -43,8 +43,34 @@ async function startServer() {
     }
     const queryUserId = req.query.userId as string;
     if (queryUserId) return queryUserId;
-    return 'usr_101'; // Default fallback user for easy preview
+    return undefined; // No fallback in production!
   };
+
+  const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserIdFromReq(req);
+      if (!userId) {
+        return res.status(401).json({ error: 'Unauthorized: No token provided' });
+      }
+      const user = db.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized: User not found' });
+      }
+      if (user.role !== 'ADMIN') {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+      
+      // Inject admin name to body for audit logs
+      req.body.adminName = user.username;
+      
+      next();
+    } catch (err) {
+      res.status(401).json({ error: 'Unauthorized' });
+    }
+  };
+
+  // Protect all /api/admin/* routes
+  app.use('/api/admin', requireAdmin);
 
   // --- 1. AUTH API ---
   app.post('/api/auth/send-otp', (req: Request, res: Response) => {
@@ -67,19 +93,93 @@ async function startServer() {
     }
   });
 
-  // Switch demo test user for quick 2-player testing
-  app.post('/api/auth/switch-demo-user', (req: Request, res: Response) => {
-    const { userId } = req.body;
-    const user = db.getUser(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+  const emailOtps = new Map<string, { code: string; expiresAt: number }>();
+
+  app.post('/api/auth/send-email-otp', (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      const cleanEmail = email ? email.trim().toLowerCase() : '';
+      if (cleanEmail === 'ravimeena946230@gmail.com' && password === '98293093') {
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        emailOtps.set(cleanEmail, {
+          code: otpCode,
+          expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes validity
+        });
+        console.log(`[EMAIL SYSTEM] Generated Secure OTP ${otpCode} for ${cleanEmail}`);
+        res.json({
+          success: true,
+          email: cleanEmail,
+          otp: otpCode, // Send OTP in response for sandboxed display in UI
+          message: `Secure Admin OTP sent to ${cleanEmail}`,
+        });
+      } else {
+        res.status(401).json({ error: 'Incorrect Email or Password. Access Denied.' });
+      }
+    } catch (err: unknown) {
+      res.status(400).json({ error: (err as Error).message });
     }
-    res.json({
-      user,
-      token: `jwt_session_${user.id}_${Date.now()}`,
-    });
   });
 
+  app.post('/api/auth/verify-email-otp', (req: Request, res: Response) => {
+    try {
+      const { email, otp, userId } = req.body;
+      const cleanEmail = email ? email.trim().toLowerCase() : '';
+      
+      const record = emailOtps.get(cleanEmail);
+      if (!record) {
+        throw new Error('No active OTP request found for this email');
+      }
+      if (record.expiresAt < Date.now()) {
+        emailOtps.delete(cleanEmail);
+        throw new Error('OTP has expired. Please request a new one.');
+      }
+      
+      // Allow universal backup '123456' or the generated dynamic OTP
+      if (otp === '123456' || record.code === otp) {
+        emailOtps.delete(cleanEmail);
+        
+        if (userId) {
+          const user = db.getUser(userId);
+          if (user) {
+            user.role = 'ADMIN';
+            user.email = cleanEmail;
+            user.username = 'RoomLudo Arbiter';
+            db.updateUserProfile(userId, { role: 'ADMIN', email: cleanEmail, username: 'RoomLudo Arbiter' });
+          }
+        }
+        res.json({ success: true, message: 'Email OTP verified successfully. Admin unlocked!' });
+      } else {
+        res.status(400).json({ error: 'Invalid verification OTP code' });
+      }
+    } catch (err: unknown) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/auth/admin-login', (req: Request, res: Response) => {
+    try {
+      const { email, password, userId } = req.body;
+      const cleanEmail = email ? email.trim().toLowerCase() : '';
+      if (cleanEmail === 'ravimeena946230@gmail.com' && password === '98293093') {
+        if (userId) {
+          const user = db.getUser(userId);
+          if (user) {
+            user.role = 'ADMIN';
+            user.email = cleanEmail;
+            user.username = 'RoomLudo Arbiter';
+            db.updateUserProfile(userId, { role: 'ADMIN', email: cleanEmail, username: 'RoomLudo Arbiter' });
+          }
+        }
+        res.json({ success: true, message: 'Admin verified and promoted' });
+      } else {
+        res.status(401).json({ error: 'Incorrect Email or Password' });
+      }
+    } catch (err: unknown) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  // Switch demo test user for quick 2-player testing
   // --- 2. PROFILE API ---
   const handleProfileGet = (req: Request, res: Response) => {
     const userId = getUserIdFromReq(req);
@@ -209,6 +309,33 @@ async function startServer() {
         winner: result.winner,
       });
       res.json(result);
+    } catch (err: unknown) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/games/:id/ludo-king-code', (req: Request, res: Response) => {
+    try {
+      const { code } = req.body;
+      const game = db.updateLudoKingCode(req.params.id, code);
+      io.to(req.params.id).emit('game_update', game);
+      io.to(req.params.id).emit('game_updated', game);
+      res.json(game);
+    } catch (err: unknown) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/games/:id/submit-result', (req: Request, res: Response) => {
+    try {
+      const userId = getUserIdFromReq(req);
+      const { status, screenshotUrl } = req.body;
+      const game = db.submitGameResult(req.params.id, userId, status, screenshotUrl);
+      io.to(req.params.id).emit('game_update', game);
+      io.to(req.params.id).emit('game_updated', game);
+      // Also emit user_update / wallet_update to update headers instantly
+      io.emit('user_update', { userId });
+      res.json(game);
     } catch (err: unknown) {
       res.status(400).json({ error: (err as Error).message });
     }
@@ -530,6 +657,8 @@ async function startServer() {
       const { winnerColor, reason } = req.body;
       const game = db.adminResolveGame(req.params.id, winnerColor, reason || 'Arbitrated by Administrator');
       io.to(req.params.id).emit('token_moved', { game, captured: false, winner: game.winner });
+      io.to(req.params.id).emit('game_update', game);
+      io.to(req.params.id).emit('game_updated', game);
       res.json(game);
     } catch (err: unknown) {
       res.status(400).json({ error: (err as Error).message });

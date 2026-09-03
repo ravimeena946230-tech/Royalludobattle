@@ -39,8 +39,8 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       return;
     }
 
-    if (isNaN(amt) || amt < 50) {
-      setErrorMsg('Minimum withdrawal amount is ₹50.');
+    if (isNaN(amt) || amt < 200) {
+      setErrorMsg('Minimum withdrawal amount is ₹200.');
       return;
     }
 
@@ -97,7 +97,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
               <p className="text-base font-black text-indigo-900">₹{winnings.toFixed(2)}</p>
             </div>
             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-              Min ₹50
+              Min ₹200
             </span>
           </div>
 
@@ -129,7 +129,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    placeholder="Enter amount (Min ₹50)"
+                    placeholder="Enter amount (Min ₹200)"
                     className="w-full pl-7 pr-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
